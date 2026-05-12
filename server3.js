@@ -1,8 +1,14 @@
 const express = require('express');
 const mysql = require('mysql2');
+////////////////////////////////////////
+const jwt = require('jsonwebtoken');    //to involve JWT token
+///////////////////////////////////////
 
 const app = express();
 app.use(express.json());
+////////////////////////////////////////////
+const SECRET_KEY="mysecretkey";    //secret key for JWT token
+///////////////////////////////////////////
 
 // Database connection
 const db = mysql.createConnection({
@@ -20,7 +26,33 @@ db.connect((err) => {
   console.log("Connected to MySQL");
 });
 
+//////////////////////////////////////////
+// Middleware to authenticate JWT token
+// JWT verification middleware = check if token is present and valid; 
+// if valid, save decoded user info in req.user
 
+function authenticateToken(req, res, next) {
+  // get token from headers
+  const authHeader = req.headers['authorization'];
+  // token format: Bearer token_here
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({
+      message: "Token required"
+    });
+  }
+  jwt.verify(token, SECRET_KEY, (err, user) => {
+    if (err) {
+      return res.status(403).json({
+        message: "Invalid token"
+      });
+    }
+    // save decoded user info
+    req.user = user;
+    next();
+  });
+}
+/////////////////////////////////////////
 // SIGNUP (Basic Details) → insert into mas_users = POST method
 
 app.post('/signup', (req, res) => {
@@ -72,7 +104,7 @@ app.post('/signup', (req, res) => {
 });  
 
 
-// LOGIN (login table) = POST method - email must exist; password must match
+// LOGIN (login table) = POST method - email must exist; password must match; JWT MUST BE HERE
 app.post('/login', (req, res) => {
   const { email,password } = req.body;
   if(!email || !password){
@@ -100,24 +132,29 @@ app.post('/login', (req, res) => {
     //passwords mismatch
     if(user.password !== password){
       return res.status(401).json({
-        message: "invalid password"
+        message: "invalid USERN/PASSWORD"
       });
     }
-
-    //successful login
+    // create token
+    const token = jwt.sign(       //create encrypted token containing user id and email
+      {id: user.id,
+        email: user.email
+      },
+      SECRET_KEY,
+      { expiresIn: '1h'
+      }
+    );
     res.json({
       message: "Login successful",
-      user: user
+      token: token
     });
-
   });
-
 });
 
 
 // UPDATE PROFILE (mas_users)
-
-app.put('/update-user/:id', (req, res) => {
+//app.put('/update-user/:id', (req, res) => {
+app.put('/update-user/:id', authenticateToken, (req, res) => {
 
   const id = req.params.id;
 
@@ -141,7 +178,7 @@ app.put('/update-user/:id', (req, res) => {
 
 
 // LIST ALL USERS (mas_users) = GET method
-app.get('/users', (req, res) => {
+app.get('/users', authenticateToken, (req, res) => {    //SECURITY ISSUE: only return user list without passwords; alter sql query from * to field names
   const sql = "SELECT * FROM mas_users";
 
   db.query(sql, (err, result) => {
@@ -156,7 +193,7 @@ app.get('/users', (req, res) => {
 
 
 // FETCH USER BY ID = GET method
-app.get('/users/:id', (req, res) => {
+app.get('/users/:id', authenticateToken, (req, res) => {
   const id = req.params.id;
 
   const sql = "SELECT * FROM mas_users WHERE id = ?";
@@ -183,3 +220,4 @@ app.get('/users/:id', (req, res) => {
 app.listen(3000, () => {
   console.log("Server running on port 3000");
 });
+
